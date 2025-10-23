@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from '@google/genai';
+// FIX: `ImageStyle` is an enum used as a value (e.g., `ImageStyle.None`), so it must be imported as a value, not just as a type.
 import type { GeneratedPost, Platform, Tone } from '../types';
-import { PlatformName } from '../types';
+import { ImageStyle, PlatformName } from '../types';
 
 let ai: GoogleGenAI | null = null;
 let currentApiKey: string | undefined = undefined;
@@ -35,12 +36,17 @@ export const generateSocialPosts = async (
   topic: string,
   tone: Tone,
   platforms: Platform[],
+  imageStyle: ImageStyle,
   apiKey?: string,
 ): Promise<GeneratedPost[]> => {
   try {
     const localAi = getAiClient(apiKey);
     const model = 'gemini-2.5-pro';
     const platformNames = platforms.map(p => p.name).join(', ');
+    const imageStyleInstruction = imageStyle !== ImageStyle.None 
+      ? `The "imagePrompt" must be for an image in a "${imageStyle}" style.`
+      : 'The "imagePrompt" should be a creative prompt for an AI image generator.';
+
     const prompt = `You are a social media marketing expert. Your task is to generate engaging social media content based on a given topic, tone, and list of platforms.
 
 Topic: "${topic}"
@@ -48,7 +54,7 @@ Tone: ${tone}
 Platforms: ${platformNames}
 
 For each platform, provide a JSON object with the appropriate fields:
-- For standard image-based platforms, provide: "platformName", "postText" (the caption), and "imagePrompt" (a creative prompt for an AI image generator).
+- For standard image-based platforms, provide: "platformName", "postText" (the caption), and "imagePrompt". ${imageStyleInstruction}
 - For video-based platforms like TikTok or Pinterest Video, provide: "platformName", "postText" (the caption), "videoPrompt" (a prompt for an AI video generator), and "script" (a brief script or storyboard outline).
 
 Return the response as a valid JSON array of these objects, with one object for each requested platform.`;
@@ -109,13 +115,19 @@ Return the response as a valid JSON array of these objects, with one object for 
 export const generateImage = async (
   prompt: string,
   aspectRatio: '1:1' | '9:16' | '16:9' | '4:3' | '3:4' | '2:3',
+  imageStyle: ImageStyle,
   apiKey?: string,
 ): Promise<string> => {
   try {
     const localAi = getAiClient(apiKey);
+    let finalPrompt = prompt;
+    if (imageStyle !== ImageStyle.None) {
+        finalPrompt = `${imageStyle} style, ${prompt}`;
+    }
+
     const response = await localAi.models.generateImages({
       model: 'imagen-4.0-generate-001',
-      prompt: prompt,
+      prompt: finalPrompt,
       config: {
         numberOfImages: 1,
         outputMimeType: 'image/jpeg',
@@ -141,6 +153,7 @@ export const refinePost = async (
   originalPost: GeneratedPost,
   instruction: string,
   platform: Platform,
+  imageStyle: ImageStyle,
   apiKey?: string,
 ): Promise<GeneratedPost> => {
   try {
@@ -151,10 +164,14 @@ export const refinePost = async (
     const originalContent = isVideo 
         ? `Original Post Text: "${originalPost.postText}"\nOriginal Video Prompt: "${originalPost.videoPrompt}"\nOriginal Script: "${originalPost.script}"`
         : `Original Post Text: "${originalPost.postText}"\nOriginal Image Prompt: "${originalPost.imagePrompt}"`;
+    
+    const imageStyleInstruction = !isVideo && imageStyle !== ImageStyle.None
+        ? `The new image prompt must be for an image in a "${imageStyle}" style.`
+        : '';
         
     const requiredFields = isVideo
         ? 'Generate a new, improved post text, video prompt, and script.'
-        : 'Generate a new, improved post text and a corresponding new image prompt.';
+        : `Generate a new, improved post text and a corresponding new image prompt. ${imageStyleInstruction}`;
 
 
     const prompt = `You are a social media marketing expert. Your task is to refine an existing social media post based on a specific instruction.

@@ -8,6 +8,16 @@ export enum Tone {
   Inspirational = 'Inspirational',
 }
 
+export enum ImageStyle {
+  None = 'None',
+  Photorealistic = 'Photorealistic',
+  Illustration = 'Illustration',
+  Minimalist = 'Minimalist',
+  Cinematic = 'Cinematic',
+  Fantasy = 'Fantasy',
+  Abstract = 'Abstract',
+}
+
 export enum PlatformName {
   LinkedIn = 'LinkedIn',
   Twitter = 'X (Twitter)',

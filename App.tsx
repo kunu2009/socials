@@ -2,7 +2,7 @@ import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { generateSocialPosts, generateImage, refinePost, generateProTip } from './services/geminiService';
 import { fetchStockImage } from './services/unsplashService';
 import { PLATFORMS } from './constants';
-import { Tone, PlatformName, SocialPost } from './types';
+import { Tone, PlatformName, SocialPost, ImageStyle } from './types';
 import SocialPostCard from './components/SocialPostCard';
 import Loader from './components/Loader';
 import { SparklesIcon, SettingsIcon, CopyIcon, CheckIcon } from './components/Icons';
@@ -60,12 +60,14 @@ const SettingsModal: React.FC<{
 const App: React.FC = () => {
   const [topic, setTopic] = useState('');
   const [tone, setTone] = useState<Tone>(Tone.Professional);
+  const [imageStyle, setImageStyle] = useState<ImageStyle>(ImageStyle.None);
   const [selectedPlatformNames, setSelectedPlatformNames] = useState<Set<PlatformName>>(new Set());
   
   const [socialPosts, setSocialPosts] = useState<SocialPost[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isRefining, setIsRefining] = useState<Record<PlatformName, boolean>>({});
-  const [isSwapping, setIsSwapping] = useState<Record<PlatformName, boolean>>({});
+  // FIX: Explicitly cast the initial empty objects to the correct type to satisfy TypeScript's strict checks for useState.
+  const [isRefining, setIsRefining] = useState({} as Record<PlatformName, boolean>);
+  const [isSwapping, setIsSwapping] = useState({} as Record<PlatformName, boolean>);
   const [error, setError] = useState<string | null>(null);
   
   const [userApiKey, setUserApiKey] = useState('');
@@ -112,7 +114,7 @@ const App: React.FC = () => {
     setSocialPosts([]);
 
     try {
-      const generatedContent = await generateSocialPosts(topic, tone, selectedPlatforms, userApiKey);
+      const generatedContent = await generateSocialPosts(topic, tone, selectedPlatforms, imageStyle, userApiKey);
       
       const postsWithDetailsPromises = generatedContent.map(async (post) => {
         const platform = PLATFORMS.find(p => p.name === post.platformName);
@@ -120,7 +122,7 @@ const App: React.FC = () => {
 
         const imagePromise = post.imagePrompt 
           ? isAiImageMode
-            ? generateImage(post.imagePrompt, platform.aspectRatio, userApiKey).catch(e => {
+            ? generateImage(post.imagePrompt, platform.aspectRatio, imageStyle, userApiKey).catch(e => {
                 console.error(`Failed to generate image for ${platform.name}`, e);
                 return undefined;
               })
@@ -160,7 +162,7 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [topic, tone, selectedPlatforms, userApiKey, isAiImageMode]);
+  }, [topic, tone, selectedPlatforms, userApiKey, isAiImageMode, imageStyle]);
 
   const handleRefinePost = useCallback(async (platformName: PlatformName, instruction: string) => {
     const postToRefine = socialPosts.find(p => p.platform.name === platformName);
@@ -170,11 +172,11 @@ const App: React.FC = () => {
     setError(null);
 
     try {
-      const refinedGeneratedPost = await refinePost(postToRefine, instruction, postToRefine.platform, userApiKey);
+      const refinedGeneratedPost = await refinePost(postToRefine, instruction, postToRefine.platform, imageStyle, userApiKey);
       
       let newImageUrl = postToRefine.imageUrl;
       if (refinedGeneratedPost.imagePrompt && postToRefine.imagePrompt !== refinedGeneratedPost.imagePrompt && postToRefine.isAiImage) {
-        newImageUrl = await generateImage(refinedGeneratedPost.imagePrompt, postToRefine.platform.aspectRatio, userApiKey).catch(e => {
+        newImageUrl = await generateImage(refinedGeneratedPost.imagePrompt, postToRefine.platform.aspectRatio, imageStyle, userApiKey).catch(e => {
             console.error(`Failed to generate refined image for ${platformName}`, e);
             return postToRefine.imageUrl;
         });
@@ -190,7 +192,7 @@ const App: React.FC = () => {
     } finally {
       setIsRefining(prev => ({ ...prev, [platformName]: false }));
     }
-  }, [socialPosts, userApiKey]);
+  }, [socialPosts, userApiKey, imageStyle]);
   
   const handleSwapImage = useCallback(async (platformName: PlatformName) => {
       const postToSwap = socialPosts.find(p => p.platform.name === platformName);
@@ -200,7 +202,7 @@ const App: React.FC = () => {
       try {
           let newImageUrl: string | undefined;
           if (postToSwap.isAiImage && postToSwap.imagePrompt) {
-              newImageUrl = await generateImage(postToSwap.imagePrompt, postToSwap.platform.aspectRatio, userApiKey);
+              newImageUrl = await generateImage(postToSwap.imagePrompt, postToSwap.platform.aspectRatio, imageStyle, userApiKey);
           } else {
               newImageUrl = await fetchStockImage(`${topic} ${tone}`, postToSwap.platform.aspectRatio);
           }
@@ -213,7 +215,7 @@ const App: React.FC = () => {
       } finally {
           setIsSwapping(prev => ({...prev, [platformName]: false }));
       }
-  }, [socialPosts, userApiKey, topic, tone]);
+  }, [socialPosts, userApiKey, topic, tone, imageStyle]);
   
   const handleCopyAll = useCallback(() => {
     if (socialPosts.length === 0) return;
@@ -227,6 +229,14 @@ const App: React.FC = () => {
         setTimeout(() => setIsAllCopied(false), 2500);
     });
   }, [socialPosts]);
+
+  const handleSelectAll = useCallback(() => {
+    setSelectedPlatformNames(new Set(PLATFORMS.map(p => p.name)));
+  }, []);
+
+  const handleClearAll = useCallback(() => {
+    setSelectedPlatformNames(new Set());
+  }, []);
 
 
   return (
@@ -270,6 +280,17 @@ const App: React.FC = () => {
                   {Object.values(Tone).map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
+              <div>
+                <label htmlFor="imageStyle" className="block text-sm font-medium text-slate-300 mb-1">Image Style</label>
+                <select
+                  id="imageStyle"
+                  value={imageStyle}
+                  onChange={(e) => setImageStyle(e.target.value as ImageStyle)}
+                  className="w-full p-2 bg-slate-900 border border-slate-600 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors"
+                >
+                  {Object.values(ImageStyle).map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
               <div className="flex items-center justify-between pt-1">
                 <label htmlFor="ai-image-toggle" className="text-sm font-medium text-slate-300">Generate AI Images</label>
                  <button
@@ -283,7 +304,25 @@ const App: React.FC = () => {
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">Platforms</label>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-sm font-medium text-slate-300">Platforms</label>
+                  <div className="flex items-center space-x-3">
+                    <button 
+                      onClick={handleSelectAll}
+                      disabled={selectedPlatformNames.size === PLATFORMS.length}
+                      className="text-xs font-medium text-slate-400 hover:text-white transition-colors disabled:text-slate-600 disabled:cursor-not-allowed"
+                    >
+                      Select All
+                    </button>
+                    <button
+                      onClick={handleClearAll}
+                      disabled={selectedPlatformNames.size === 0}
+                      className="text-xs font-medium text-slate-400 hover:text-white transition-colors disabled:text-slate-600 disabled:cursor-not-allowed"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
                 <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                   {PLATFORMS.map(platform => (
                     <button
